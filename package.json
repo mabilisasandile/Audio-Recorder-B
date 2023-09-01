@@ -35,7 +35,9 @@
     "vue": "^3.3.4"
   },
   "devDependencies": {
-    "@babel/core": "^7.20.0"
+    "@babel/core": "^7.20.0",
+    "@expo/metro-config": "^0.10.7",
+    "metro-config": "^0.78.1"
   },
   "private": true
 }

@@ -5,15 +5,14 @@ import {
 } from 'react-native';
 import { Card } from '@rneui/themed';
 import { Audio } from 'expo-av';
-// import { ref } from 'vue';
 import { FontAwesomeIcon } from '@fortawesome/react-native-fontawesome';
 import { faStop, faMicrophone, faPlay, faPause, faEdit, faTrash } from '@fortawesome/free-solid-svg-icons';
 import { collection, addDoc, getDocs, updateDoc, deleteDoc, doc, where } from "firebase/firestore";
 import { db, storage, auth } from '../config/firebase';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
-import { getDownloadURL, uploadBytes, ref } from 'firebase/storage';
+import { getDownloadURL, uploadBytes, ref, deleteObject } from 'firebase/storage';
 import { useNavigation } from "@react-navigation/native";
-// import { object } from 'module';
+
 
 
 const recordingOptions = {
@@ -47,7 +46,7 @@ const recordingOptions = {
 
 export default function AudioRecorder() {
 
-  // const [user, setUser] = useState(null);
+  const [current_user, setUser] = useState(null);
   const [recordings, setRecordings] = useState([]);
   const [recording, setRecording] = useState(null);
   const [audioTitle, setAudioTitle] = useState('');
@@ -65,8 +64,6 @@ export default function AudioRecorder() {
     });
   }, []);
 
-
-
   useEffect(() => {
     getSavedAudios();
   }, []);
@@ -74,6 +71,7 @@ export default function AudioRecorder() {
 
   const user = auth.currentUser;
   console.log("User logged in:", user);
+  console.log("User logged in ID:", user.uid);
 
   const navigation = useNavigation();
 
@@ -137,8 +135,25 @@ export default function AudioRecorder() {
 
 
 
+  //Get the duration
+  function getDurationFormatted(millis) {
+
+    if (isNaN(millis)) {
+      return "Invalid duration";
+    }
+
+    const minutes = millis / 1000 / 60;
+    const minutesDisplay = Math.floor(minutes);
+    const seconds = Math.round((minutes - minutesDisplay) * 60);
+    const secondsDisplay = seconds < 10 ? `0${seconds}` : seconds;
+    return `${minutesDisplay}:${secondsDisplay}`;
+  }
+
+
+
   // stop the active recording and save recorded audio
   const stopRecording = async () => {
+    let fileURL;
     try {
       setRecording(undefined);
       await recording.stopAndUnloadAsync();
@@ -149,8 +164,6 @@ export default function AudioRecorder() {
       )
 
       const getURI = recording.getURI();
-
-      // let recordingsArray = [...recordings];
       const { sound, status } = await recording.createNewLoadedSoundAsync();
 
       const blob = await new Promise((resolve, reject) => {
@@ -177,13 +190,12 @@ export default function AudioRecorder() {
         // Save the audio file under the signed-in user's ID in Firebase Storage
         const audioFileRef = ref(storage, `audio/${userId}/${audioTitle}`);
         const upload = uploadBytes(audioFileRef, blob).then(() => {
-          getDownloadURL(audioFileRef).then(async (url) => {
+          getDownloadURL(audioFileRef).then(async (fileURL) => {
             await addDoc(collection(db, 'recordings'), {
               userId: userId,
               title: audioTitle,
               duration: getDurationFormatted(status.durationMillis),
-              fileURL: url,
-              // sound: sound,
+              fileUrl: fileURL,
               file: getURI,
             })
           })
@@ -194,17 +206,17 @@ export default function AudioRecorder() {
           {
             title: audioTitle,
             duration: getDurationFormatted(status.durationMillis),
-            // fileURL: url,
+            fileUrl: fileURL,
             sound: sound,
             file: getURI,
           }
         ];
 
-
-        // updatedRecordings.push(newRecording);
+        console.log("Status object properties:", status);
         setRecordings(updatedRecordings);
         setRecording(null);
         setAudioTitle('');
+        setMessage("Audio saved successfully.");
         Alert.alert('Success', 'Audio saved successfully.', [{ text: 'OK' }]);
       }
     } catch (error) {
@@ -214,25 +226,8 @@ export default function AudioRecorder() {
       setErrorMessage("Failed to save audio!");
       Alert.alert('Error', 'Failed to save audio!.', [{ text: 'OK' }]);
     }
-
   }
 
-
-
-
-  //Get the duration
-  function getDurationFormatted(millis) {
-
-    if (isNaN(millis)) {
-      return "Invalid duration";
-    }
-
-    const minutes = millis / 1000 / 60;
-    const minutesDisplay = Math.floor(minutes);
-    const seconds = Math.round((minutes - minutesDisplay) * 60);
-    const secondsDisplay = seconds < 10 ? `0${seconds}` : seconds;
-    return `${minutesDisplay}:${secondsDisplay}`;
-  }
 
 
 
@@ -243,14 +238,6 @@ export default function AudioRecorder() {
 
       await updateDoc(audioData, {
         title: editTitle
-      });
-
-      // Update the audio title on Firebase Storage
-      const audioRef = ref(storage, `audio/${id}`);
-      await updateMetadata(audioRef, {
-        customMetadata: {
-          title: editTitle
-        }
       });
 
       const updatedRecordings = recordings.map((recording) => {
@@ -271,19 +258,26 @@ export default function AudioRecorder() {
 
 
 
-
   // Remove a recording from Firebase Storage/Firestore based on its ID.
-  const deleteRecording = async (id) => {
+  const deleteRecording = async (id, audioName) => {
     try {
 
+      // Create a reference to the audio to delete in firestore
       const audioData = doc(db, "recordings", id);
-
+      //Delete the audio from firestore
       await deleteDoc(audioData);
-
       const updatedRecordings = recordings.filter((recording) => recording.id !== id);
 
-      setRecordings(updatedRecordings);
+      // Create a reference to the audio to delete in storage 
+      const audioRef = ref(storage, `audio/${user.uid}/` + audioName);
+      //Delete the audio from storage
+      deleteObject(audioRef).then(() => {
+        console.log("Audio deleted from storage");
+      }).catch((error) => {
+        console.log("Failed to delete audio from storage:", error);
+      });
 
+      setRecordings(updatedRecordings);
       Alert.alert("Success", "Audio Deleted...", [{ text: "OK" }]);
 
     } catch (error) {
@@ -384,7 +378,10 @@ export default function AudioRecorder() {
           <FontAwesomeIcon icon={faEdit} size={30} color='#000080' />
         </TouchableOpacity>
 
-        <TouchableOpacity onPress={() => deleteRecording(item.id)}>
+        <TouchableOpacity onPress={() => {
+          deleteRecording(item.id, item.audioTitle);
+          console.log("Audio url:", item.audioTitle);
+        }}>
           <FontAwesomeIcon icon={faTrash} size={30} color='#000080' />
         </TouchableOpacity>
       </View>
@@ -397,12 +394,12 @@ export default function AudioRecorder() {
   return (
     <View style={styles.container}>
 
-      <Text style={styles.heading}>Audio Recorder</Text>
+      <Text style={styles.heading}>AUDIO RECORDER</Text>
 
       <Card containerStyle={{ marginTop: 15, marginBottom: 15, height: 300, width: 300, borderRadius: 10, backgroundColor: '#87ceeb', }}>
-        <Card.Title>RECORD AUDIO</Card.Title>
-        {/* <Card.Divider /> */}
-        <Text>{errorMessage}</Text>
+        <Card.Title>Record an audio here:</Card.Title>
+        <Text style={{ color: 'green' }}>{message}</Text>
+        <Text style={{ color: 'red' }}>{errorMessage}</Text>
         {recording ? (
           <TouchableOpacity onPress={stopRecording}>
             <FontAwesomeIcon icon={faStop} size={30} color="red" />
@@ -415,18 +412,18 @@ export default function AudioRecorder() {
         {recording && <Text>Recording...</Text>}
         <TextInput
           style={styles.inputs}
-          placeholder="Enter Audio Title"
+          placeholder="Enter audio name"
           value={audioTitle}
           onChangeText={(text) => setAudioTitle(text)}
         />
-        <Button
-          style={styles.button}
-          title="Save Recording"
-          onPress={stopRecording}
-        />
+      
+        <TouchableOpacity onPress={stopRecording} style={styles.button}>
+          <Text>Save Recording</Text>
+        </TouchableOpacity>
       </Card>
 
       <Card containerStyle={{ marginTop: 15, marginBottom: 15, height: 300, width: 300, borderRadius: 10, backgroundColor: '#87ceeb', }}>
+        <Card.Title>Recorded audios:</Card.Title>
         <FlatList
           data={recordings}
           keyExtractor={(item) => item.id}
@@ -436,10 +433,9 @@ export default function AudioRecorder() {
       <Button
         title="Log Out"
         onPress={handleLogOut}
-        style={{cursor: 'pointer', paddingVertical: 10, paddingHorizontal: 20, borderRadius: 10,}}
+        style={{ cursor: 'pointer', paddingVertical: 10, paddingHorizontal: 20, borderRadius: 10, }}
       />
     </View>
-
   );
 }
 
@@ -473,11 +469,11 @@ const styles = StyleSheet.create({
     color: "#FFFFFF",
   },
   button: {
-    backgroundColor: '#f4511e',
+    backgroundColor: '#1e90ff',
     paddingVertical: 10,
     paddingHorizontal: 20,
     borderRadius: 10,
-    width: 200,
+    width: 140,
     shadowColor: 'black',
     color: '#fff',
     fontSize: 18,

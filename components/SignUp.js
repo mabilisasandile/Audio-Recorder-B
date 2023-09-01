@@ -26,8 +26,8 @@ const SignUp = () => {
             // Handle signup error
             Alert.alert("Error", "Failed to sign up!", [{ text: "OK" }]);
             console.log("Failed to sign up!", error);
+            
         })
-
     })
 
 
