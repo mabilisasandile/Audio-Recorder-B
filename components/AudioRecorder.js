@@ -379,8 +379,9 @@ export default function AudioRecorder() {
         </TouchableOpacity>
 
         <TouchableOpacity onPress={() => {
-          deleteRecording(item.id, item.audioTitle);
-          console.log("Audio url:", item.audioTitle);
+          deleteRecording(item.id, item.title);
+          console.log("Audio id:", item.id);
+          console.log("Audio title:", item.title);
         }}>
           <FontAwesomeIcon icon={faTrash} size={30} color='#000080' />
         </TouchableOpacity>
