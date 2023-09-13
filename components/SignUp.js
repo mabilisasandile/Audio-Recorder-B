@@ -12,23 +12,38 @@ const SignUp = () => {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const navigation = useNavigation();
+    const API_KEY = "AIzaSyBVxolW1kr1EUIk-j02yRX_wN4844N2JtY";
 
-    const handleSignup = (() => {
-        createUserWithEmailAndPassword(auth, email, password).then(() => {
+    const handleSignup = () => {
+        const requestBody = {
+            email: email,
+            password: password,
+            returnSecureToken: true
+        };
 
-            // Handle successful signup
-            Alert.alert("Success", "Signed Up Successfully.", [{ text: "OK" }]);
-            console.log("Signed Up Successfully.");
-            navigation.navigate('SignIn');
-
-        }).catch((error) => {
-
-            // Handle signup error
-            Alert.alert("Error", "Failed to sign up!", [{ text: "OK" }]);
-            console.log("Failed to sign up!", error);
-            
+        fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${API_KEY}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(requestBody)
         })
-    })
+        .then(response => {
+            if (response.ok) {
+                // Handle successful signup
+                Alert.alert("Success", "Signed Up Successfully.", [{ text: "OK" }]);
+                console.log("Signed Up Successfully.");
+                navigation.navigate('SignIn');
+            } else {
+                // Handle signup error
+                Alert.alert("Error", "Failed to sign up!", [{ text: "OK" }]);
+                console.log("Failed to sign up!");
+            }
+        })
+        .catch(error => {
+            console.log("Error:", error);
+        });
+    };
 
 
 

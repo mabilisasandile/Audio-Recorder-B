@@ -12,7 +12,11 @@ const SignIn = () => {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const navigation = useNavigation();
-    
+    const [resetEmail, setResetEmail] = useState('');
+    const [showResetPassword, setShowResetPassword] = useState(false);
+    const PROJECT_ID = "audio-recorder-67133";
+    const API_KEY = "AIzaSyBVxolW1kr1EUIk-j02yRX_wN4844N2JtY";
+
 
 
     useEffect(() => {
@@ -30,6 +34,36 @@ const SignIn = () => {
 
 
     const handleSignin = (() => {
+
+        // // Replace the signInWithEmailAndPassword function with the appropriate REST API endpoint
+        // fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${API_KEY}`, {         //https://PROJECT_ID.firebaseapp.com/signin
+        //     method: 'POST',
+        //     headers: {
+        //         'Content-Type': 'application/json',
+        //     },
+        //     body: JSON.stringify({
+        //         email: email,
+        //         password: password,
+        //     }),
+        // })
+        //     .then(response => response.json())
+        //     .then(data => {
+        //         if (data.success) {
+        //             // Handle successful sign in
+        //             Alert.alert("Success", "Signed In Successfully.", [{ text: "OK" }]);
+        //             navigation.navigate("Home"); // Navigate to the home screen
+        //         } else {
+        //             // Handle sign in error
+        //             Alert.alert("Error", "Failed to sign in. Invalid Username/Password!", [{ text: "OK" }]);
+        //             console.log(data.error);
+        //         }
+        //     })
+        //     .catch(error => {
+        //         console.log(error);
+        //     });
+
+            //-----------------------------------------------------
+
         signInWithEmailAndPassword(auth, email, password).then(() => {
 
             // Handle successful signin
@@ -38,15 +72,49 @@ const SignIn = () => {
 
         }).catch((error) => {
 
-            // Handle signin error
+            // Handle sign in error
             Alert.alert("Error", "Failed to sign in. Invalid Username/Password!", [{ text: "OK" }]);
             console.log(error);
         })
 
     })
 
+
+
     const handleLinkClick = () => {
         navigation.navigate('Register');
+    };
+
+
+    const resetPassword = () => {
+        setShowResetPassword(true);
+    };
+
+    const handleResetPassword = () => {
+
+        fetch('https://PROJECT_ID.firebaseapp.com/resetpassword', {  //https://identitytoolkit.googleapis.com/v1/accounts:sendOobCode?key=[API_KEY]
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                email: resetEmail,
+            }),
+        })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    // Handle successful password reset
+                    Alert.alert("Success", "Password reset email sent.", [{ text: "OK" }]);
+                } else {
+                    // Handle password reset error
+                    Alert.alert("Error", "Failed to reset password. Invalid Email!", [{ text: "OK" }]);
+                    console.log(data.error);
+                }
+            })
+            .catch(error => {
+                console.log(error);
+            });
     };
 
 
@@ -87,10 +155,26 @@ const SignIn = () => {
 
 
                 <Card.Actions>
-                    <TouchableOpacity style={styles.nav_link} onPress={handleLinkClick}>
+                    <TouchableOpacity style={styles.nav_link} onPress={resetPassword}>
                         <Text>Forgot Password?</Text>
                     </TouchableOpacity>
                 </Card.Actions>
+
+                {showResetPassword && (
+                    <Card.Actions>
+                        <TextInput
+                            placeholder="Enter email to reset password"
+                            value={resetEmail}
+                            onChangeText={setResetEmail}
+                            style={styles.inputs}
+                        />
+                        <TouchableOpacity style={styles.reset} onPress={handleResetPassword}>
+                            <Text>Reset</Text>
+                        </TouchableOpacity>
+                    </Card.Actions>
+
+                )}
+
             </Card>
 
         </View>
@@ -102,8 +186,11 @@ const styles = StyleSheet.create({
     container: {
         flex: 1,
         padding: 20,
+        height: 600,
+        width: 300,
         alignItems: 'center',
         justifyContent: 'center',
+        backgroundColor: '#c0c0c0',
     },
     card: {
         marginTop: 15,
@@ -153,6 +240,11 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         marginTop: 10,
         marginBottom: 10,
+    },
+    reset: {
+        fontSize: 24,
+        fontWeight: 'bold',
+        backgroundColor: '#00fa9a',
     },
     inputs: {
         width: 250,
