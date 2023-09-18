@@ -7,8 +7,10 @@ import { Card } from '@rneui/themed';
 import { Audio } from 'expo-av';
 import { FontAwesomeIcon } from '@fortawesome/react-native-fontawesome';
 import { faStop, faMicrophone, faPlay, faPause, faEdit, faTrash } from '@fortawesome/free-solid-svg-icons';
-import { auth } from '../config/firebase';
+import { collection, addDoc, getDocs, updateDoc, deleteDoc, doc, where } from "firebase/firestore";
+import { db, storage, auth } from '../config/firebase';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
+import { getDownloadURL, uploadBytes, ref, deleteObject } from 'firebase/storage';
 import { useNavigation } from "@react-navigation/native";
 
 
@@ -68,35 +70,33 @@ export default function AudioRecorder() {
 
 
   const user = auth.currentUser;
-  const navigation = useNavigation();
-  const BUCKET_NAME = "audio-recorder-67133.appspot.com";
-  const PROJECT_ID = "audio-recorder-67133";
-  const API_KEY = "AIzaSyBVxolW1kr1EUIk-j02yRX_wN4844N2JtY";
-
   console.log("User logged in:", user);
   console.log("User logged in ID:", user.uid);
 
-  
+  const navigation = useNavigation();
 
 
   // retrieve the saved recordings from Firebase Storage/Firestore
   const getSavedAudios = async () => {
-    
     try {
-      const response = await axios.get(`https://firestore.googleapis.com/v1/projects/${PROJECT_ID}/databases/(default)/documents/${recordings}`);
-      const savedRecordings = response.data.documents.map((doc) => {
-        return {
-          id: doc.name.split('/').pop(),
-          ...doc.fields
-        };
+      const querySnapshot = await getDocs(collection(db, "recordings"), where('userId', '==', user.uid));
+
+      const savedRecordings = [];
+
+      querySnapshot.forEach((doc) => {
+        savedRecordings.push({
+          id: doc.id,
+          ...doc.data()
+        });
       });
+
       setRecordings(savedRecordings);
+
       console.log("Saved Recordings:", savedRecordings);
 
     } catch (error) {
       console.log("Failed to fetch saved audios", error);
     }
-
   };
 
 
@@ -153,7 +153,7 @@ export default function AudioRecorder() {
 
   // stop the active recording and save recorded audio
   const stopRecording = async () => {
-    
+    let fileURL;
     try {
       setRecording(undefined);
       await recording.stopAndUnloadAsync();
@@ -188,45 +188,36 @@ export default function AudioRecorder() {
         const userId = user.uid; // Get the signed-in user's ID
 
         // Save the audio file under the signed-in user's ID in Firebase Storage
-        const audioFileRef = `audio/${userId}/${audioTitle}`;
-        const storageUrl = `https://storage.googleapis.com/storage/v1/b/${BUCKET_NAME}/o/${encodeURIComponent(audioFileRef)}`;
-        const storageResponse = await axios.post(storageUrl, {
-          name: audioFileRef,
-          contentType: 'audio/m4a',
-        });
+        const audioFileRef = ref(storage, `audio/${userId}/${audioTitle}`);
+        const upload = uploadBytes(audioFileRef, blob).then(() => {
+          getDownloadURL(audioFileRef).then(async (fileURL) => {
+            await addDoc(collection(db, 'recordings'), {
+              userId: userId,
+              title: audioTitle,
+              duration: getDurationFormatted(status.durationMillis),
+              fileUrl: fileURL,
+              file: getURI,
+            })
+          })
+        })
 
-        // Get the download URL of the saved audio file
-        const downloadUrl = storageResponse.data.mediaLink;
-
-        // Save the audio metadata in Firestore
-        const firestoreUrl = `https://firestore.googleapis.com/v1/projects/${PROJECT_ID}/databases/(default)/documents/recordings`;
-        const firestoreResponse = await axios.post(firestoreUrl, {
-          fields: {
-            userId: { stringValue: userId },
-            title: { stringValue: audioTitle },
-            duration: { stringValue: getDurationFormatted(status.durationMillis) },
-            fileUrl: { stringValue: downloadUrl },
-          },
-        });
-
-        // Retrieve the saved audio from Firestore and update the state
-        const savedAudio = {
-          id: firestoreResponse.data.name.split('/').pop(),
-          title: audioTitle,
-          duration: getDurationFormatted(status.durationMillis),
-          fileUrl: downloadUrl,
-        };
-        setRecordings([...recordings, savedAudio]);
-
-        // Reset the input fields
-        setAudioTitle('');
+        let updatedRecordings = [
+          ...recordings,
+          {
+            title: audioTitle,
+            duration: getDurationFormatted(status.durationMillis),
+            fileUrl: fileURL,
+            sound: sound,
+            file: getURI,
+          }
+        ];
 
         console.log("Status object properties:", status);
-
-        // Show success message
-        setMessage('Audio saved successfully.');
+        setRecordings(updatedRecordings);
+        setRecording(null);
+        setAudioTitle('');
+        setMessage("Audio saved successfully.");
         Alert.alert('Success', 'Audio saved successfully.', [{ text: 'OK' }]);
-
       }
     } catch (error) {
 
@@ -240,27 +231,26 @@ export default function AudioRecorder() {
 
 
 
-  // update the title of a recording based on its ID in Firestore
-  const updateAudioTitle = async (id, newTitle) => {
+  // update the title of a recording based on its ID in Firebase Storage/Firestore
+  const updateAudioTitle = async (id, editTitle) => {
     try {
-      const firestoreUrl = `https://firestore.googleapis.com/v1/projects/${PROJECT_ID}/databases/(default)/documents/recordings/${id}`;
-      await axios.patch(firestoreUrl, {
-        fields: {
-          title: { stringValue: newTitle },
-        },
+      const audioData = doc(db, "recordings", id);
+
+      await updateDoc(audioData, {
+        title: editTitle
       });
 
-      // Update the state with the updated title
       const updatedRecordings = recordings.map((recording) => {
         if (recording.id === id) {
-          return { ...recording, title: newTitle };
+          return { ...recording, title: editTitle };
         }
         return recording;
       });
+
       setRecordings(updatedRecordings);
 
-      // Show success message
       Alert.alert('Success', 'Audio Title Updated.', [{ text: 'OK' }]);
+
     } catch (error) {
       console.log(error);
     }
@@ -268,32 +258,34 @@ export default function AudioRecorder() {
 
 
 
-
-  // Delete a recording from Firestore and Storage
+  // Remove a recording from Firebase Storage/Firestore based on its ID.
   const deleteRecording = async (id, audioName) => {
     try {
-      // Delete the audio document from Firestore
-      const firestoreUrl = `https://firestore.googleapis.com/v1/projects/${PROJECT_ID}/databases/(default)/documents/recordings/${id}`;
-      await axios.delete(firestoreUrl);
 
-      // Delete the audio file from Storage
-      const storageUrl = `https://storage.googleapis.com/storage/v1/b/${BUCKET_NAME}/o/${encodeURIComponent(audioName)}`;
-      await axios.delete(storageUrl);
-
-      // Update the state by removing the deleted recording
+      // Create a reference to the audio to delete in firestore
+      const audioData = doc(db, "recordings", id);
+      //Delete the audio from firestore
+      await deleteDoc(audioData);
       const updatedRecordings = recordings.filter((recording) => recording.id !== id);
-      setRecordings(updatedRecordings);
 
-      // Show success message
-      Alert.alert('Success', 'Audio Deleted.', [{ text: 'OK' }]);
+      // Create a reference to the audio to delete in storage 
+      const audioRef = ref(storage, `audio/${user.uid}/` + audioName);
+      //Delete the audio from storage
+      deleteObject(audioRef).then(() => {
+        console.log("Audio deleted from storage");
+      }).catch((error) => {
+        console.log("Failed to delete audio from storage:", error);
+      });
+
+      setRecordings(updatedRecordings);
+      Alert.alert("Success", "Audio Deleted...", [{ text: "OK" }]);
+
     } catch (error) {
+
       console.log(error);
-      Alert.alert('Error', 'Failed to delete audio!', [{ text: 'OK' }]);
+      Alert.alert("Error", "Failed to delete audio!", [{ text: "OK" }]);
     }
   };
-
-  
-
 
 
   //Close the Modal after editing
@@ -425,7 +417,7 @@ export default function AudioRecorder() {
           value={audioTitle}
           onChangeText={(text) => setAudioTitle(text)}
         />
-
+      
         <TouchableOpacity onPress={stopRecording} style={styles.button}>
           <Text>Save Recording</Text>
         </TouchableOpacity>

@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "Audio-Recorder-REST-APIs",
-    "slug": "Audio-Recorder-REST-APIs",
+    "name": "audio-recorder-app2",
+    "slug": "audio-recorder-app2",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
